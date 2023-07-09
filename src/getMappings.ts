@@ -1,0 +1,250 @@
+import { prisma } from "./db/client";
+import axios from "axios";
+import { ITitle } from "@consumet/extensions/dist/models";
+
+import {
+  kitsu,
+  thetvdb,
+  zoro,
+  gogo,
+  cronchy,
+  tmdb,
+  livechart,
+  Malsync,
+  fribbList,
+} from "./mappings";
+import chalk from "chalk";
+
+export const getMappings = async (anilistId: number) => {
+  if (
+    await prisma.anime.findUnique({ where: { anilistId: Number(anilistId) } })
+  ) {
+    console.log("Mappings already exist for this AniList ID " + anilistId);
+    return await prisma.anime.findFirst({
+      where: { anilistId: Number(anilistId) },
+    });
+  }
+
+  try {
+    const { data } = await axios.post("https://graphql.anilist.co/", {
+      query: `{
+                Media(id:${anilistId}) {
+                  id
+                  idMal
+                  format
+                  startDate{
+                    year
+                  }
+                  title {
+                    romaji
+                    english
+                    native
+                    userPreferred
+                  }
+                  synonyms
+                }
+              }`,
+    });
+
+    const anime = data.data.Media;
+    const aniId = Number(anime.id);
+    const fribb = await fribbList(anime.idMal as number);
+    const malsync = await Malsync(anime.idMal as number);
+    const tvdb = await thetvdb(
+      ((anime.title as ITitle).english as string) ??
+        ((anime.title as ITitle).romaji as string),
+      anime.startDate.year ?? undefined,
+      anime.format
+    );
+    await Promise.all([fribb, tvdb]);
+    // console.log(anime.title.native);
+    await prisma.anime
+      .create({
+        data: {
+          anilistId: aniId,
+          title: {
+            english: anime.title.english ?? null,
+            romaji: anime.title.romaji ?? null,
+            native: anime.title.native ?? null,
+          },
+          malId: anime.idMal,
+          zoroId:
+            anime.idMal !== undefined && malsync && malsync.Zoro
+              ? (Object.values(malsync.Zoro)[0] as any).url
+              .replace("https://aniwatch.to/", "")
+              .replace("https://zoro.to/", "")
+                
+              : await zoro(
+                  ((anime.title as ITitle).english as string) ??
+                    (anime.title as ITitle).romaji
+                ),
+          gogoanimeId:
+            anime.idMal !== undefined && malsync && malsync.Gogoanime
+              ? (Object.values(malsync.Gogoanime)[0] as any).identifier
+              : await gogo(
+                  ((anime.title as ITitle).romaji as string) ??
+                    (anime.title as ITitle).english
+                ),
+          nineanimeId:
+            anime.idMal !== undefined && malsync && malsync["9anime"]
+              ? (Object.values(malsync["9anime"])[0] as any).url.replace(
+                  "https://9anime.pl/watch/",
+                  ""
+                )
+              : undefined,
+          Marin:
+            anime.idMal !== undefined && malsync && malsync.Marin
+              ? (Object.values(malsync.Marin)[0] as any).identifier
+              : undefined,
+          animepahe:
+            anime.idMal !== undefined && malsync && malsync.animepahe
+              ? (Object.values(malsync.animepahe)[0] as any).identifier
+              : undefined,
+          anilist: anime,
+          cronchyId: undefined,
+          // await cronchy(
+          //   ((anime.title as ITitle).english as string) ??
+          //     (anime.title as ITitle).romaji,
+          // )
+          kitsu: await kitsu(
+            ((anime.title as ITitle).romaji as string) ??
+              (anime.title as ITitle).english
+          ),
+          thetvdb: tvdb,
+          tmdb: tvdb ? await tmdb(tvdb.id, anime.format) : undefined,
+          anidb: fribb?.anidb_id,
+          anisearch: fribb?.anisearch_id,
+          livechart:
+            fribb?.livechart_id ??
+            (await livechart(String((anime.title as ITitle).romaji))),
+        },
+      })
+      .then(async (data) => {
+        console.log(
+          chalk.green`[+] Mappings for ${
+            ((anime.title as ITitle).romaji as string) ??
+            (anime.title as ITitle).english
+          } have been added`
+        );
+        // console.log(data);
+      });
+    return await prisma.anime.findUnique({ where: { anilistId: aniId } });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      if (error.message === "Media not found") {
+        return {
+          message:
+            "An error occurred while processing your request. Please make sure this is a valid AniList ID",
+          error: error.message,
+        };
+      }
+      console.log(error);
+      return {
+        message:
+          "An error occurred while processing your request. Please make sure this is a valid AniList ID",
+      };
+    }
+  }
+};
+
+export const onlyMap = async (anilistId: number) => {
+  try {
+    const { data } = await axios.post("https://graphql.anilist.co/", {
+      query: `{
+        Media(id:${anilistId}) {
+          id
+          idMal
+          description(asHtml: false)
+          format
+          startDate {
+            year
+          }
+          title {
+            romaji
+            english
+            native
+          }
+          synonyms
+        }
+      }`,
+    });
+    const anime = data.data.Media;
+    const aniId = Number(anime.id);
+    const fribb = await fribbList(anime.idMal as number);
+    const malsync = await Malsync(anime.idMal as number);
+    const tvdb = await thetvdb(
+      ((anime.title as ITitle).english as string) ??
+        ((anime.title as ITitle).romaji as string),
+      anime.startDate.year ?? undefined,
+      anime.format
+    );
+    const mappedData = {
+      anilist: anime,
+      anilistId: anime.id,
+      title: {
+        english: anime.title.english ?? null,
+        romaji: anime.title.romaji ?? null,
+        native: anime.title.native ?? null,
+      },
+      malId: anime.idMal,
+      zoroId:
+            anime.idMal !== undefined && malsync && malsync.Zoro
+              ? (Object.values(malsync.Zoro)[0] as any).url
+              .replace("https://aniwatch.to/", "")
+              .replace("https://zoro.to/", "")
+              : await zoro(
+                  ((anime.title as ITitle).english as string) ??
+                    (anime.title as ITitle).romaji
+                ),
+          gogoanimeId:
+            anime.idMal !== undefined && malsync && malsync.Gogoanime
+              ? (Object.values(malsync.Gogoanime)[0] as any).identifier
+              : await gogo(
+                  ((anime.title as ITitle).romaji as string) ??
+                    (anime.title as ITitle).english
+                ),
+          nineanimeId:
+            anime.idMal !== undefined && malsync && malsync["9anime"]
+              ? (Object.values(malsync["9anime"])[0] as any).url.replace(
+                  "https://9anime.pl/watch/",
+                  ""
+                )
+              : undefined,
+          Marin:
+            anime.idMal !== undefined && malsync && malsync.Marin
+              ? (Object.values(malsync.Marin)[0] as any).identifier
+              : undefined,
+          animepahe:
+            anime.idMal !== undefined && malsync && malsync.animepahe
+              ? (Object.values(malsync.animepahe)[0] as any).identifier
+              : undefined,
+    };
+
+    return mappedData;
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "Media not found") {
+        return {
+          message:
+            "An error occurred while processing your request. Please make sure this is a valid AniList ID",
+          error: error.message,
+        };
+      }
+      console.log(error);
+      return {
+        message:
+          "An error occurred while processing your request. Please make sure this is a valid AniList ID",
+      };
+    }
+  }
+};
+
+
+
+
+//(async() => {
+//	await prisma.anime.deleteMany()
+//	await getMappings(21)
+//	console.log(await getMappings(21))
+
+//})()

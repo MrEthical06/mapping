@@ -1,0 +1,42 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Anime {
+  id          String  @id @unique @default(cuid())
+  Title       Title[]
+  title       Json
+  anilistId   Int     @unique
+  malId       Int?    @unique
+  zoroId      Json?
+  gogoanimeId Json?
+  nineanimeId String?
+  Marin       String?
+  animepahe   String?
+  anilist     Json?
+  cronchyId   Json?
+  kitsu       Json?
+  thetvdb     Json?
+  tmdb        Json?
+  anidb       Json?
+  anisearch   Json?
+  livechart   Json?
+}
+
+model Title {
+  id      String  @id @unique @default(cuid())
+  english String?
+  native  String?
+  romaji  String?
+  Anime   Anime?  @relation(fields: [animeId], references: [id])
+  animeId String?
+}
