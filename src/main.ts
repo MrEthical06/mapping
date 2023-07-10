@@ -1,7 +1,7 @@
 import { prisma } from "./db/client";
 import { getMappings } from "./getMappings";
 import { onlyMap } from "./getMappings";
-import fastify, { fastify } from "fastify";
+import fastify from "fastify";
 import fastifyCors from "@fastify/cors";
 import { META } from "@consumet/extensions";
 import chalk from "chalk";
